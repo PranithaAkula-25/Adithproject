@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useEffect, useState } from 'react';
 import { 
   User as FirebaseUser,
@@ -12,6 +11,7 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { User, UserRole } from '@/types/firebase';
+import { initializeSampleData } from '@/lib/sampleData';
 
 interface AuthContextType {
   user: User | null;
@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (userDoc.exists()) {
             const userData = userDoc.data();
             console.log('User data from Firestore:', userData);
-            setUser({
+            const userObj = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
               displayName: firebaseUser.displayName || '',
@@ -61,17 +61,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               university: userData.university,
               major: userData.major,
               graduationYear: userData.graduationYear
-            });
+            };
+            setUser(userObj);
+
+            // Initialize sample data for new organizers
+            if (userData.role === 'organizer') {
+              await initializeSampleData(firebaseUser.uid, firebaseUser.displayName || 'Event Organizer');
+            }
           } else {
             console.log('No user document found in Firestore, creating default user');
-            setUser({
+            const userObj = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
               displayName: firebaseUser.displayName || '',
               photoURL: firebaseUser.photoURL || undefined,
-              role: 'member',
+              role: 'member' as const,
               createdAt: new Date()
-            });
+            };
+            setUser(userObj);
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
@@ -145,6 +152,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         console.log('User data stored in Firestore');
+
+        // Initialize sample data for new organizers
+        if (role === 'organizer') {
+          await initializeSampleData(user.uid, displayName);
+        }
       } catch (firestoreError) {
         console.error('Error storing user data in Firestore:', firestoreError);
         // Don't throw here - user creation was successful even if Firestore fails

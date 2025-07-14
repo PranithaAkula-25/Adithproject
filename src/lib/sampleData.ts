@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, query, limit } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, limit, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
 export const sampleEvents = [
@@ -12,9 +12,14 @@ export const sampleEvents = [
     tags: ["AI", "Healthcare", "Technology"],
     maxAttendees: 200,
     isPublic: true,
+    rsvpOpen: true,
+    allowComments: true,
     rsvp: [],
     likes: [],
-    currentAttendees: 0
+    comments: [],
+    currentAttendees: 0,
+    shareCount: 0,
+    viewCount: 0
   },
   {
     title: "Cultural Night 2024",
@@ -26,9 +31,14 @@ export const sampleEvents = [
     tags: ["Cultural", "Music", "Dance", "Food"],
     maxAttendees: 500,
     isPublic: true,
+    rsvpOpen: true,
+    allowComments: true,
     rsvp: [],
     likes: [],
-    currentAttendees: 0
+    comments: [],
+    currentAttendees: 0,
+    shareCount: 0,
+    viewCount: 0
   },
   {
     title: "Startup Pitch Competition",
@@ -40,9 +50,14 @@ export const sampleEvents = [
     tags: ["Startup", "Business", "Competition", "Networking"],
     maxAttendees: 100,
     isPublic: true,
+    rsvpOpen: true,
+    allowComments: true,
     rsvp: [],
     likes: [],
-    currentAttendees: 0
+    comments: [],
+    currentAttendees: 0,
+    shareCount: 0,
+    viewCount: 0
   },
   {
     title: "Campus Coding Bootcamp",
@@ -54,9 +69,14 @@ export const sampleEvents = [
     tags: ["Coding", "Web Development", "Workshop", "Programming"],
     maxAttendees: 50,
     isPublic: true,
+    rsvpOpen: true,
+    allowComments: true,
     rsvp: [],
     likes: [],
-    currentAttendees: 0
+    comments: [],
+    currentAttendees: 0,
+    shareCount: 0,
+    viewCount: 0
   },
   {
     title: "Mental Health Awareness Seminar",
@@ -68,9 +88,14 @@ export const sampleEvents = [
     tags: ["Mental Health", "Wellness", "Support", "Community"],
     maxAttendees: 150,
     isPublic: true,
+    rsvpOpen: true,
+    allowComments: true,
     rsvp: [],
     likes: [],
-    currentAttendees: 0
+    comments: [],
+    currentAttendees: 0,
+    shareCount: 0,
+    viewCount: 0
   },
   {
     title: "Winter Sports Tournament",
@@ -82,13 +107,18 @@ export const sampleEvents = [
     tags: ["Sports", "Tournament", "Basketball", "Competition"],
     maxAttendees: 300,
     isPublic: true,
+    rsvpOpen: true,
+    allowComments: true,
     rsvp: [],
     likes: [],
-    currentAttendees: 0
+    comments: [],
+    currentAttendees: 0,
+    shareCount: 0,
+    viewCount: 0
   }
 ];
 
-export const initializeSampleData = async (organizerId: string) => {
+export const initializeSampleData = async (organizerId: string, organizerName: string = 'Event Organizer') => {
   try {
     // Check if events already exist
     const eventsQuery = query(collection(db, 'events'), limit(1));
@@ -102,7 +132,10 @@ export const initializeSampleData = async (organizerId: string) => {
         await addDoc(collection(db, 'events'), {
           ...event,
           organizerId,
-          createdAt: new Date(),
+          organizerName,
+          organizerPhotoURL: null,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
           clubId: null,
           googleEventId: null,
           googleCalendarLink: null

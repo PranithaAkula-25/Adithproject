@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/FirebaseAuthContext";
@@ -8,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, MapPin, Users, Image, Plus } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Calendar, MapPin, Users, Image, Plus, Settings } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -24,10 +24,14 @@ const CreateEvent = () => {
     description: '',
     venue: '',
     eventDate: '',
+    endDate: '',
     category: '',
     imageUrl: '',
     maxAttendees: '',
-    tags: ''
+    tags: '',
+    isPublic: true,
+    rsvpOpen: true,
+    allowComments: true
   });
 
   const categories = [
@@ -56,19 +60,28 @@ const CreateEvent = () => {
         description: eventData.description,
         venue: eventData.venue,
         eventDate: eventData.eventDate,
+        endDate: eventData.endDate || null,
         category: eventData.category,
         imageUrl: eventData.imageUrl || null,
         maxAttendees: eventData.maxAttendees ? parseInt(eventData.maxAttendees) : null,
         tags: tagsArray,
         organizerId: user.uid,
+        organizerName: user.displayName || 'Event Organizer',
+        organizerPhotoURL: user.photoURL || null,
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         rsvp: [],
         likes: [],
+        comments: [],
         currentAttendees: 0,
-        isPublic: true,
+        isPublic: eventData.isPublic,
+        rsvpOpen: eventData.rsvpOpen,
+        allowComments: eventData.allowComments,
         clubId: null,
         googleEventId: null,
-        googleCalendarLink: null
+        googleCalendarLink: null,
+        shareCount: 0,
+        viewCount: 0
       };
 
       console.log('Creating event with data:', eventDoc);
@@ -77,14 +90,14 @@ const CreateEvent = () => {
 
       toast({
         title: "Success!",
-        description: "Event created and saved to database successfully",
+        description: "Event created successfully and is now live!",
       });
       navigate('/dashboard');
     } catch (error) {
       console.error('Error creating event:', error);
       toast({
         title: "Error",
-        description: "Failed to save event to database. Please try again.",
+        description: "Failed to create event. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -101,7 +114,7 @@ const CreateEvent = () => {
               Create New Event
             </CardTitle>
             <CardDescription>
-              Fill in the details to create an engaging campus event
+              Create an engaging event that will connect your campus community
             </CardDescription>
           </CardHeader>
           
@@ -113,7 +126,7 @@ const CreateEvent = () => {
                 <Input
                   id="title"
                   type="text"
-                  placeholder="Enter event title"
+                  placeholder="Enter an engaging event title"
                   value={eventData.title}
                   onChange={(e) => setEventData(prev => ({ ...prev, title: e.target.value }))}
                   required
@@ -125,7 +138,7 @@ const CreateEvent = () => {
                 <Label htmlFor="description">Description *</Label>
                 <Textarea
                   id="description"
-                  placeholder="Describe your event..."
+                  placeholder="Describe your event in detail. What can attendees expect?"
                   rows={4}
                   value={eventData.description}
                   onChange={(e) => setEventData(prev => ({ ...prev, description: e.target.value }))}
@@ -152,23 +165,6 @@ const CreateEvent = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="date">Date & Time *</Label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="date"
-                      type="datetime-local"
-                      className="pl-10"
-                      value={eventData.eventDate}
-                      onChange={(e) => setEventData(prev => ({ ...prev, eventDate: e.target.value }))}
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
                   <Label htmlFor="category">Category *</Label>
                   <Select
                     value={eventData.category}
@@ -186,20 +182,51 @@ const CreateEvent = () => {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="max_attendees">Max Attendees</Label>
+                  <Label htmlFor="eventDate">Start Date & Time *</Label>
                   <div className="relative">
-                    <Users className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                     <Input
-                      id="max_attendees"
-                      type="number"
-                      placeholder="Leave empty for unlimited"
+                      id="eventDate"
+                      type="datetime-local"
                       className="pl-10"
-                      value={eventData.maxAttendees}
-                      onChange={(e) => setEventData(prev => ({ ...prev, maxAttendees: e.target.value }))}
+                      value={eventData.eventDate}
+                      onChange={(e) => setEventData(prev => ({ ...prev, eventDate: e.target.value }))}
+                      required
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">End Date & Time</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="endDate"
+                      type="datetime-local"
+                      className="pl-10"
+                      value={eventData.endDate}
+                      onChange={(e) => setEventData(prev => ({ ...prev, endDate: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="max_attendees">Maximum Attendees</Label>
+                <div className="relative">
+                  <Users className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="max_attendees"
+                    type="number"
+                    placeholder="Leave empty for unlimited"
+                    className="pl-10"
+                    value={eventData.maxAttendees}
+                    onChange={(e) => setEventData(prev => ({ ...prev, maxAttendees: e.target.value }))}
+                  />
                 </div>
               </div>
 
@@ -230,8 +257,54 @@ const CreateEvent = () => {
                   onChange={(e) => setEventData(prev => ({ ...prev, tags: e.target.value }))}
                 />
                 <p className="text-sm text-gray-500">
-                  Separate multiple tags with commas
+                  Tags help users discover your event
                 </p>
+              </div>
+
+              {/* Event Settings */}
+              <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Settings className="w-5 h-5 text-gray-600" />
+                  <Label className="text-base font-semibold">Event Settings</Label>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="isPublic">Public Event</Label>
+                      <p className="text-sm text-gray-500">Anyone can see and RSVP to this event</p>
+                    </div>
+                    <Switch
+                      id="isPublic"
+                      checked={eventData.isPublic}
+                      onCheckedChange={(checked) => setEventData(prev => ({ ...prev, isPublic: checked }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="rsvpOpen">RSVP Open</Label>
+                      <p className="text-sm text-gray-500">Allow users to RSVP to this event</p>
+                    </div>
+                    <Switch
+                      id="rsvpOpen"
+                      checked={eventData.rsvpOpen}
+                      onCheckedChange={(checked) => setEventData(prev => ({ ...prev, rsvpOpen: checked }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="allowComments">Allow Comments</Label>
+                      <p className="text-sm text-gray-500">Users can comment on this event</p>
+                    </div>
+                    <Switch
+                      id="allowComments"
+                      checked={eventData.allowComments}
+                      onCheckedChange={(checked) => setEventData(prev => ({ ...prev, allowComments: checked }))}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Submit Button */}

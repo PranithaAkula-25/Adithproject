@@ -3,9 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { MessageCircle, Send, X, Bot, User } from 'lucide-react';
+import { MessageCircle, Send, X, Bot, User, Sparkles } from 'lucide-react';
 import { chatWithGemini } from '@/lib/gemini';
 import { useAuth } from '@/contexts/FirebaseAuthContext';
+import { useFirebaseEvents } from '@/hooks/useFirebaseEvents';
 
 interface Message {
   id: string;
@@ -19,7 +20,7 @@ const ChatBot = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "Hi! I'm CampusConnect AI. I can help you find events, answer questions about RSVPs, or provide recommendations. What would you like to know?",
+      text: "Hi! I'm CampusConnect AI, powered by Google Gemini. I can help you find events, answer questions about RSVPs, provide personalized recommendations, and assist with general campus life questions. What would you like to know?",
       isUser: false,
       timestamp: new Date()
     }
@@ -28,6 +29,7 @@ const ChatBot = () => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+  const { events } = useFirebaseEvents();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,6 +38,24 @@ const ChatBot = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const generateEventContext = () => {
+    const upcomingEvents = events.filter(event => new Date(event.eventDate) > new Date());
+    const userRsvpEvents = user ? events.filter(event => event.rsvp?.includes(user.uid)) : [];
+    
+    return `
+    Current Events Context:
+    - Total upcoming events: ${upcomingEvents.length}
+    - User RSVP'd events: ${userRsvpEvents.length}
+    - Available categories: ${[...new Set(events.map(e => e.category))].join(', ')}
+    - Popular events: ${events.sort((a, b) => (b.rsvp?.length || 0) - (a.rsvp?.length || 0)).slice(0, 3).map(e => e.title).join(', ')}
+    
+    Recent Events:
+    ${upcomingEvents.slice(0, 5).map(event => 
+      `- ${event.title} (${event.category}) on ${new Date(event.eventDate).toLocaleDateString()} at ${event.venue} - ${event.rsvp?.length || 0} attendees`
+    ).join('\n')}
+    `;
+  };
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
@@ -52,8 +72,11 @@ const ChatBot = () => {
     setIsLoading(true);
 
     try {
-      const context = user ? `User: ${user.displayName} (${user.role})` : 'Anonymous user';
-      const response = await chatWithGemini(inputMessage, context);
+      const userContext = user ? `User: ${user.displayName} (${user.role})` : 'Anonymous user';
+      const eventContext = generateEventContext();
+      const fullContext = `${userContext}\n\n${eventContext}`;
+      
+      const response = await chatWithGemini(inputMessage, fullContext);
       
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -66,7 +89,7 @@ const ChatBot = () => {
     } catch (error) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: "I'm sorry, I'm having trouble responding right now. Please try again later.",
+        text: "I'm sorry, I'm having trouble responding right now. Please try again later or contact support for assistance.",
         isUser: false,
         timestamp: new Date()
       };
@@ -83,6 +106,18 @@ const ChatBot = () => {
     }
   };
 
+  const quickActions = [
+    "Show me upcoming events",
+    "What events can I RSVP to?",
+    "Recommend events for me",
+    "How do I create an event?",
+    "Show popular events"
+  ];
+
+  const handleQuickAction = (action: string) => {
+    setInputMessage(action);
+  };
+
   return (
     <>
       {/* Chat Toggle Button */}
@@ -97,11 +132,12 @@ const ChatBot = () => {
 
       {/* Chat Window */}
       {isOpen && (
-        <Card className="fixed bottom-6 right-6 z-50 w-96 h-[500px] shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
+        <Card className="fixed bottom-6 right-6 z-50 w-96 h-[600px] shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
             <CardTitle className="text-lg font-semibold flex items-center">
               <Bot className="w-5 h-5 mr-2" />
               CampusConnect AI
+              <Sparkles className="w-4 h-4 ml-2" />
             </CardTitle>
             <Button
               variant="ghost"
@@ -113,7 +149,7 @@ const ChatBot = () => {
             </Button>
           </CardHeader>
 
-          <CardContent className="flex flex-col h-[400px] p-0">
+          <CardContent className="flex flex-col h-[500px] p-0">
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
                 {messages.map((message) => (
@@ -157,6 +193,26 @@ const ChatBot = () => {
               <div ref={messagesEndRef} />
             </ScrollArea>
 
+            {/* Quick Actions */}
+            {messages.length <= 1 && (
+              <div className="px-4 py-2 border-t bg-gray-50">
+                <p className="text-xs text-gray-600 mb-2">Quick actions:</p>
+                <div className="flex flex-wrap gap-1">
+                  {quickActions.map((action, index) => (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-6"
+                      onClick={() => handleQuickAction(action)}
+                    >
+                      {action}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="p-4 border-t">
               <div className="flex space-x-2">
                 <Input
@@ -175,6 +231,9 @@ const ChatBot = () => {
                   <Send className="w-4 h-4" />
                 </Button>
               </div>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Powered by Google Gemini AI
+              </p>
             </div>
           </CardContent>
         </Card>

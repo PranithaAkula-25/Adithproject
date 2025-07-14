@@ -1,4 +1,3 @@
-
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import EnhancedEventFeed from "@/components/EnhancedEventFeed";
@@ -20,10 +19,10 @@ const Index = () => {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Upcoming Events
+              Discover Campus Events
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Discover exciting events happening on your campus
+              Connect with your campus community through exciting events, engage with fellow students, and never miss out on what's happening around you.
             </p>
           </div>
           <EnhancedEventFeed />
