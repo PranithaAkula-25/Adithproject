@@ -18,6 +18,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { initializeSampleData } from '@/lib/sampleData';
+import { useAuth } from '@/contexts/FirebaseAuthContext';
 
 export interface FirebaseEvent {
   id: string;
@@ -53,7 +55,9 @@ export interface FirebaseEvent {
 export const useFirebaseEvents = () => {
   const [events, setEvents] = useState<FirebaseEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     console.log('Setting up Firebase events listener');
@@ -66,8 +70,17 @@ export const useFirebaseEvents = () => {
 
     const unsubscribe = onSnapshot(
       q, 
-      (querySnapshot) => {
+      async (querySnapshot) => {
         console.log('Firebase events snapshot received, docs:', querySnapshot.size);
+        
+        // Initialize sample data if no events exist and user is available
+        if (querySnapshot.empty && user && !initialized) {
+          console.log('No events found, initializing sample data...');
+          setInitialized(true);
+          await initializeSampleData(user.uid);
+          return; // The listener will fire again with the new data
+        }
+        
         const eventsArray: FirebaseEvent[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
@@ -104,7 +117,7 @@ export const useFirebaseEvents = () => {
       console.log('Cleaning up Firebase events listener');
       unsubscribe();
     }
-  }, [toast]);
+  }, [toast, user, initialized]);
 
   const rsvpToEvent = async (eventId: string, userId: string) => {
     console.log('RSVP operation started:', { eventId, userId });

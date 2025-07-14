@@ -77,14 +77,14 @@ const CreateEvent = () => {
 
       toast({
         title: "Success!",
-        description: "Event created successfully",
+        description: "Event created and saved to database successfully",
       });
       navigate('/dashboard');
     } catch (error) {
       console.error('Error creating event:', error);
       toast({
         title: "Error",
-        description: "Failed to create event",
+        description: "Failed to save event to database. Please try again.",
         variant: "destructive"
       });
     } finally {

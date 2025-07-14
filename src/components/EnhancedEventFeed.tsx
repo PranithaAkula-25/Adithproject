@@ -174,7 +174,7 @@ const EnhancedEventFeed = () => {
       <div className="max-w-4xl mx-auto">
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="text-gray-600 mt-2">Loading events...</p>
+          <p className="text-gray-600 mt-2">Loading events from database...</p>
         </div>
       </div>
     );
@@ -185,6 +185,11 @@ const EnhancedEventFeed = () => {
       {/* Search and Filter Bar */}
       <Card className="bg-white/80 backdrop-blur-sm border-0">
         <CardContent className="pt-6">
+          <div className="mb-4 text-center">
+            <p className="text-sm text-gray-600">
+              Showing {filteredEvents.length} of {events.length} events
+            </p>
+          </div>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
