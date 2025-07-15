@@ -22,7 +22,7 @@ const EnhancedEventFeed = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('date');
-  const [viewMode, setViewMode] = useState<'all' | 'trending' | 'upcoming' | 'featured'>('all');
+  const [viewMode, setViewMode] = useState<'all' | 'trending' | 'upcoming' | 'featured'>('upcoming');
   
   const { events, loading, error, hasMore, loadMoreEvents } = useFirebaseEvents({
     category: selectedCategory,
