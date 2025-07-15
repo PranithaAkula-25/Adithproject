@@ -15,7 +15,10 @@ import {
   arrayRemove,
   increment,
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  limit,
+  startAfter,
+  DocumentSnapshot
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -26,64 +29,119 @@ import { Event, Comment, ActivityLog } from '@/types/firebase';
 export interface FirebaseEvent extends Event {
   userHasRsvpd?: boolean;
   userHasLiked?: boolean;
+  userHasSaved?: boolean;
+  userHasCheckedIn?: boolean;
 }
 
-export const useFirebaseEvents = () => {
+export const useFirebaseEvents = (filters?: {
+  category?: string;
+  trending?: boolean;
+  upcoming?: boolean;
+  limit?: number;
+}) => {
   const [events, setEvents] = useState<FirebaseEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
+  const [hasMore, setHasMore] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
 
   useEffect(() => {
-    console.log('Setting up Firebase events listener');
+    console.log('Setting up Firebase events listener with filters:', filters);
+    setError(null);
     
-    const q = query(
+    let q = query(
       collection(db, 'events'),
-      where('isPublic', '==', true),
-      orderBy('createdAt', 'desc')
+      where('isPublic', '==', true)
     );
+
+    // Apply filters
+    if (filters?.category && filters.category !== 'all') {
+      q = query(q, where('category', '==', filters.category));
+    }
+
+    if (filters?.trending) {
+      q = query(q, where('trending', '==', true));
+    }
+
+    if (filters?.upcoming) {
+      q = query(q, where('eventDate', '>', new Date()));
+    }
+
+    // Add ordering and limit
+    q = query(q, orderBy('createdAt', 'desc'));
+    
+    if (filters?.limit) {
+      q = query(q, limit(filters.limit));
+    }
 
     const unsubscribe = onSnapshot(
       q, 
       async (querySnapshot) => {
         console.log('Firebase events snapshot received, docs:', querySnapshot.size);
         
-        if (querySnapshot.empty && user && !initialized) {
-          console.log('No events found, initializing sample data...');
-          setInitialized(true);
-          await initializeSampleData(user.uid);
-          return;
+        try {
+          if (querySnapshot.empty && user && !initialized) {
+            console.log('No events found, initializing sample data...');
+            setInitialized(true);
+            const result = await initializeSampleData(user.uid);
+            if (!result.success) {
+              setError('Failed to initialize sample data');
+            }
+            return;
+          }
+          
+          const eventsArray: FirebaseEvent[] = [];
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            const event = {
+              id: doc.id,
+              ...data,
+              createdAt: data.createdAt?.toDate() || new Date(),
+              updatedAt: data.updatedAt?.toDate() || new Date(),
+              eventDate: data.eventDate?.toDate ? data.eventDate.toDate() : new Date(data.eventDate),
+              endDate: data.endDate?.toDate ? data.endDate.toDate() : undefined,
+              rsvp: Array.isArray(data.rsvp) ? data.rsvp : [],
+              likes: Array.isArray(data.likes) ? data.likes : [],
+              saves: Array.isArray(data.saves) ? data.saves : [],
+              comments: Array.isArray(data.comments) ? data.comments : [],
+              checkedInAttendees: Array.isArray(data.checkedInAttendees) ? data.checkedInAttendees : [],
+              userHasRsvpd: user ? (data.rsvp || []).includes(user.uid) : false,
+              userHasLiked: user ? (data.likes || []).includes(user.uid) : false,
+              userHasSaved: user ? (data.saves || []).includes(user.uid) : false,
+              userHasCheckedIn: user ? (data.checkedInAttendees || []).includes(user.uid) : false,
+            } as FirebaseEvent;
+            eventsArray.push(event);
+          });
+          
+          console.log('Processed events:', eventsArray.length);
+          setEvents(eventsArray);
+          setError(null);
+          
+          // Set last document for pagination
+          if (querySnapshot.docs.length > 0) {
+            setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+            setHasMore(querySnapshot.docs.length === (filters?.limit || 20));
+          } else {
+            setHasMore(false);
+          }
+          
+        } catch (err) {
+          console.error('Error processing events:', err);
+          setError('Failed to process events data');
+        } finally {
+          setLoading(false);
         }
-        
-        const eventsArray: FirebaseEvent[] = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          eventsArray.push({
-            id: doc.id,
-            ...data,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            updatedAt: data.updatedAt?.toDate() || new Date(),
-            eventDate: data.eventDate?.toDate ? data.eventDate.toDate() : new Date(data.eventDate),
-            endDate: data.endDate?.toDate ? data.endDate.toDate() : undefined,
-            rsvp: Array.isArray(data.rsvp) ? data.rsvp : [],
-            likes: Array.isArray(data.likes) ? data.likes : [],
-            comments: Array.isArray(data.comments) ? data.comments : [],
-            userHasRsvpd: user ? (data.rsvp || []).includes(user.uid) : false,
-            userHasLiked: user ? (data.likes || []).includes(user.uid) : false,
-          } as FirebaseEvent);
-        });
-        
-        console.log('Processed events:', eventsArray.length);
-        setEvents(eventsArray);
-        setLoading(false);
       },
       (error) => {
         console.error('Firebase events listener error:', error);
         setLoading(false);
+        setError('Failed to load events from database. Please check your connection and try again.');
         toast({
-          title: "Error loading events",
-          description: "Failed to load events from database",
+          title: "Database Error",
+          description: "Failed to load events. Please refresh the page or try again later.",
           variant: "destructive"
         });
       }
@@ -93,7 +151,7 @@ export const useFirebaseEvents = () => {
       console.log('Cleaning up Firebase events listener');
       unsubscribe();
     }
-  }, [toast, user, initialized]);
+  }, [toast, user, initialized, filters]);
 
   const logActivity = async (eventId: string, eventTitle: string, action: string, details?: string) => {
     if (!user) return;
@@ -152,19 +210,8 @@ export const useFirebaseEvents = () => {
       // Log activity
       await logActivity(eventId, eventData.title, 'rsvp');
 
-      // Update local state
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { 
-                ...event, 
-                currentAttendees: (event.currentAttendees || 0) + 1,
-                userHasRsvpd: true,
-                rsvp: [...(event.rsvp || []), userId]
-              }
-            : event
-        )
-      );
+      // Award points for RSVP
+      await awardPoints(userId, 10, 'Event RSVP');
 
       console.log('RSVP operation completed successfully');
       return { success: true, error: null };
@@ -204,20 +251,6 @@ export const useFirebaseEvents = () => {
       // Log activity
       await logActivity(eventId, eventData.title, 'cancel_rsvp');
 
-      // Update local state
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { 
-                ...event, 
-                currentAttendees: Math.max((event.currentAttendees || 0) - 1, 0),
-                userHasRsvpd: false,
-                rsvp: (event.rsvp || []).filter(id => id !== userId)
-              }
-            : event
-        )
-      );
-
       console.log('Cancel RSVP operation completed successfully');
       return { success: true, error: null };
     } catch (error: any) {
@@ -245,18 +278,8 @@ export const useFirebaseEvents = () => {
       // Log activity
       await logActivity(eventId, eventData.title, 'like');
 
-      // Update local state
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { 
-                ...event, 
-                userHasLiked: true,
-                likes: [...(event.likes || []), userId]
-              }
-            : event
-        )
-      );
+      // Award points for like
+      await awardPoints(userId, 5, 'Event Like');
 
       return { success: true, error: null };
     } catch (error: any) {
@@ -284,22 +307,102 @@ export const useFirebaseEvents = () => {
       // Log activity
       await logActivity(eventId, eventData.title, 'unlike');
 
-      // Update local state
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { 
-                ...event, 
-                userHasLiked: false,
-                likes: (event.likes || []).filter(id => id !== userId)
-              }
-            : event
-        )
-      );
-
       return { success: true, error: null };
     } catch (error: any) {
       console.error('Error unliking event:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const saveEvent = async (eventId: string, userId: string) => {
+    try {
+      const eventRef = doc(db, 'events', eventId);
+      const eventDoc = await getDoc(eventRef);
+      
+      if (!eventDoc.exists()) {
+        return { success: false, error: 'Event not found' };
+      }
+
+      const eventData = eventDoc.data();
+      
+      await updateDoc(eventRef, {
+        saves: arrayUnion(userId),
+        updatedAt: serverTimestamp()
+      });
+
+      // Log activity
+      await logActivity(eventId, eventData.title, 'save');
+
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error saving event:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const unsaveEvent = async (eventId: string, userId: string) => {
+    try {
+      const eventRef = doc(db, 'events', eventId);
+      const eventDoc = await getDoc(eventRef);
+      
+      if (!eventDoc.exists()) {
+        return { success: false, error: 'Event not found' };
+      }
+
+      const eventData = eventDoc.data();
+      
+      await updateDoc(eventRef, {
+        saves: arrayRemove(userId),
+        updatedAt: serverTimestamp()
+      });
+
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error unsaving event:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const checkInToEvent = async (eventId: string, userId: string, qrCode?: string) => {
+    try {
+      const eventRef = doc(db, 'events', eventId);
+      const eventDoc = await getDoc(eventRef);
+      
+      if (!eventDoc.exists()) {
+        return { success: false, error: 'Event not found' };
+      }
+
+      const eventData = eventDoc.data();
+      
+      // Verify QR code if provided
+      if (qrCode && eventData.qrCode !== qrCode) {
+        return { success: false, error: 'Invalid QR code' };
+      }
+
+      // Check if user is RSVP'd
+      if (!eventData.rsvp?.includes(userId)) {
+        return { success: false, error: 'Must RSVP to check in' };
+      }
+
+      // Check if already checked in
+      if (eventData.checkedInAttendees?.includes(userId)) {
+        return { success: false, error: 'Already checked in' };
+      }
+
+      await updateDoc(eventRef, {
+        checkedInAttendees: arrayUnion(userId),
+        updatedAt: serverTimestamp()
+      });
+
+      // Log activity
+      await logActivity(eventId, eventData.title, 'checkin');
+
+      // Award points for check-in
+      await awardPoints(userId, 20, 'Event Check-in');
+
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error checking in to event:', error);
       return { success: false, error: error.message };
     }
   };
@@ -338,17 +441,8 @@ export const useFirebaseEvents = () => {
       // Log activity
       await logActivity(eventId, eventData.title, 'comment', text);
 
-      // Update local state
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { 
-                ...event, 
-                comments: [...(event.comments || []), newComment]
-              }
-            : event
-        )
-      );
+      // Award points for comment
+      await awardPoints(userId, 15, 'Event Comment');
 
       return { success: true, error: null };
     } catch (error: any) {
@@ -376,24 +470,38 @@ export const useFirebaseEvents = () => {
       // Log activity
       if (user) {
         await logActivity(eventId, eventData.title, 'share');
+        // Award points for share
+        await awardPoints(user.uid, 10, 'Event Share');
       }
-
-      // Update local state
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { 
-                ...event, 
-                shareCount: (event.shareCount || 0) + 1
-              }
-            : event
-        )
-      );
 
       return { success: true, error: null };
     } catch (error: any) {
       console.error('Error sharing event:', error);
       return { success: false, error: error.message };
+    }
+  };
+
+  const awardPoints = async (userId: string, points: number, reason: string) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        points: increment(points),
+        updatedAt: serverTimestamp()
+      });
+
+      // Check for badge achievements
+      await checkBadgeAchievements(userId);
+    } catch (error) {
+      console.error('Error awarding points:', error);
+    }
+  };
+
+  const checkBadgeAchievements = async (userId: string) => {
+    try {
+      // Implementation for badge checking logic
+      // This would check user stats and award badges accordingly
+    } catch (error) {
+      console.error('Error checking badge achievements:', error);
     }
   };
 
@@ -435,16 +543,78 @@ export const useFirebaseEvents = () => {
     }
   };
 
+  const loadMoreEvents = async () => {
+    if (!hasMore || !lastDoc) return;
+
+    try {
+      let q = query(
+        collection(db, 'events'),
+        where('isPublic', '==', true),
+        orderBy('createdAt', 'desc'),
+        startAfter(lastDoc),
+        limit(filters?.limit || 20)
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        setHasMore(false);
+        return;
+      }
+
+      const newEvents: FirebaseEvent[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const event = {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          eventDate: data.eventDate?.toDate ? data.eventDate.toDate() : new Date(data.eventDate),
+          endDate: data.endDate?.toDate ? data.endDate.toDate() : undefined,
+          rsvp: Array.isArray(data.rsvp) ? data.rsvp : [],
+          likes: Array.isArray(data.likes) ? data.likes : [],
+          saves: Array.isArray(data.saves) ? data.saves : [],
+          comments: Array.isArray(data.comments) ? data.comments : [],
+          checkedInAttendees: Array.isArray(data.checkedInAttendees) ? data.checkedInAttendees : [],
+          userHasRsvpd: user ? (data.rsvp || []).includes(user.uid) : false,
+          userHasLiked: user ? (data.likes || []).includes(user.uid) : false,
+          userHasSaved: user ? (data.saves || []).includes(user.uid) : false,
+          userHasCheckedIn: user ? (data.checkedInAttendees || []).includes(user.uid) : false,
+        } as FirebaseEvent;
+        newEvents.push(event);
+      });
+
+      setEvents(prev => [...prev, ...newEvents]);
+      setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+      setHasMore(querySnapshot.docs.length === (filters?.limit || 20));
+
+    } catch (error) {
+      console.error('Error loading more events:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load more events",
+        variant: "destructive"
+      });
+    }
+  };
+
   return {
     events,
     loading,
+    error,
+    hasMore,
     rsvpToEvent,
     cancelRsvp,
     likeEvent,
     unlikeEvent,
+    saveEvent,
+    unsaveEvent,
+    checkInToEvent,
     addComment,
     shareEvent,
     updateEvent,
-    deleteEvent
+    deleteEvent,
+    loadMoreEvents
   };
 };

@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { 
   Calendar, 
@@ -16,7 +15,11 @@ import {
   Send,
   MoreHorizontal,
   Clock,
-  Eye
+  Eye,
+  Bookmark,
+  BookmarkCheck,
+  QrCode,
+  Star
 } from 'lucide-react';
 import { useAuth } from '@/contexts/FirebaseAuthContext';
 import { useFirebaseEvents, FirebaseEvent } from '@/hooks/useFirebaseEvents';
@@ -36,11 +39,22 @@ interface EventCardProps {
 
 const EventCard = ({ event }: EventCardProps) => {
   const { user } = useAuth();
-  const { rsvpToEvent, cancelRsvp, likeEvent, unlikeEvent, addComment, shareEvent } = useFirebaseEvents();
+  const { 
+    rsvpToEvent, 
+    cancelRsvp, 
+    likeEvent, 
+    unlikeEvent, 
+    addComment, 
+    shareEvent,
+    saveEvent,
+    unsaveEvent,
+    checkInToEvent
+  } = useFirebaseEvents();
   const { toast } = useToast();
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isCommenting, setIsCommenting] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const handleRSVP = async () => {
     if (!user) {
@@ -116,6 +130,39 @@ const EventCard = ({ event }: EventCardProps) => {
     }
   };
 
+  const handleSave = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to save events",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      if (event.userHasSaved) {
+        await unsaveEvent(event.id, user.uid);
+        toast({
+          title: "Event unsaved",
+          description: "Event removed from your saved list",
+        });
+      } else {
+        await saveEvent(event.id, user.uid);
+        toast({
+          title: "Event saved",
+          description: "Event added to your saved list",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save event",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleComment = async () => {
     if (!user || !commentText.trim()) return;
 
@@ -150,12 +197,14 @@ const EventCard = ({ event }: EventCardProps) => {
     try {
       const result = await shareEvent(event.id);
       if (result.success) {
-        if (navigator.share) {
-          await navigator.share({
-            title: event.title,
-            text: event.description,
-            url: `${window.location.origin}/event/${event.id}`,
-          });
+        const shareData = {
+          title: event.title,
+          text: event.description,
+          url: `${window.location.origin}/event/${event.id}`,
+        };
+
+        if (navigator.share && navigator.canShare(shareData)) {
+          await navigator.share(shareData);
         } else {
           await navigator.clipboard.writeText(`${window.location.origin}/event/${event.id}`);
           toast({
@@ -166,6 +215,11 @@ const EventCard = ({ event }: EventCardProps) => {
       }
     } catch (error) {
       console.error('Error sharing:', error);
+      toast({
+        title: "Error",
+        description: "Failed to share event",
+        variant: "destructive"
+      });
     }
   };
 
@@ -174,9 +228,43 @@ const EventCard = ({ event }: EventCardProps) => {
     window.open(calendarLink, '_blank');
   };
 
+  const handleCheckIn = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to check in",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const result = await checkInToEvent(event.id, user.uid, event.qrCode);
+      if (result.success) {
+        toast({
+          title: "Checked in successfully!",
+          description: "You've been checked in to this event",
+        });
+      } else {
+        toast({
+          title: "Check-in failed",
+          description: result.error || "Failed to check in",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to check in",
+        variant: "destructive"
+      });
+    }
+  };
+
   const isEventFull = event.maxAttendees && event.currentAttendees >= event.maxAttendees;
   const isEventPast = new Date(event.eventDate) < new Date();
   const canRsvp = event.rsvpOpen && !isEventPast && !isEventFull;
+  const canCheckIn = event.userHasRsvpd && !isEventPast && !event.userHasCheckedIn;
 
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300 bg-white/80 backdrop-blur-sm border-0">
@@ -203,6 +291,17 @@ const EventCard = ({ event }: EventCardProps) => {
                 {event.category}
               </Badge>
             )}
+            {event.trending && (
+              <Badge className="bg-gradient-to-r from-orange-500 to-red-500">
+                <Star className="w-3 h-3 mr-1" />
+                Trending
+              </Badge>
+            )}
+            {event.featured && (
+              <Badge className="bg-gradient-to-r from-purple-500 to-pink-500">
+                Featured
+              </Badge>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm">
@@ -218,6 +317,12 @@ const EventCard = ({ event }: EventCardProps) => {
                   <Share2 className="w-4 h-4 mr-2" />
                   Share Event
                 </DropdownMenuItem>
+                {canCheckIn && (
+                  <DropdownMenuItem onClick={handleCheckIn}>
+                    <QrCode className="w-4 h-4 mr-2" />
+                    Check In
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -225,11 +330,11 @@ const EventCard = ({ event }: EventCardProps) => {
       </CardHeader>
 
       <CardContent className="pb-4">
-        {/* Event Image */}
-        {event.imageUrl && (
+        {/* Event Banner/Image */}
+        {(event.bannerUrl || event.imageUrl) && (
           <div className="relative mb-4 rounded-lg overflow-hidden">
             <img 
-              src={event.imageUrl} 
+              src={event.bannerUrl || event.imageUrl} 
               alt={event.title}
               className="w-full h-64 object-cover"
             />
@@ -287,6 +392,9 @@ const EventCard = ({ event }: EventCardProps) => {
             {isEventFull && (
               <Badge variant="outline" className="text-orange-500">Event Full</Badge>
             )}
+            {event.userHasCheckedIn && (
+              <Badge className="bg-green-100 text-green-800">Checked In</Badge>
+            )}
           </div>
         </div>
 
@@ -319,6 +427,19 @@ const EventCard = ({ event }: EventCardProps) => {
             >
               <Share2 className="w-4 h-4" />
               {event.shareCount || 0}
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={`flex items-center gap-2 ${event.userHasSaved ? 'text-blue-600' : 'text-gray-600'}`}
+              onClick={handleSave}
+            >
+              {event.userHasSaved ? (
+                <BookmarkCheck className="w-4 h-4 fill-current" />
+              ) : (
+                <Bookmark className="w-4 h-4" />
+              )}
+              {event.saves?.length || 0}
             </Button>
           </div>
           <div className="flex items-center space-x-2">
