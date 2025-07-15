@@ -52,10 +52,7 @@ export const useFirebaseEvents = (filters?: {
     console.log('Setting up Firebase events listener with filters:', filters);
     setError(null);
     
-    let q = query(
-      collection(db, 'events'),
-      where('isPublic', '==', true)
-    );
+    let q = query(collection(db, 'events'));
 
     // Apply filters
     if (filters?.category && filters.category !== 'all') {
@@ -96,6 +93,12 @@ export const useFirebaseEvents = (filters?: {
           const eventsArray: FirebaseEvent[] = [];
           querySnapshot.forEach((doc) => {
             const data = doc.data();
+            
+            // Filter out non-public events on the client side
+            if (!data.isPublic) {
+              return;
+            }
+            
             const event = {
               id: doc.id,
               ...data,
@@ -549,7 +552,6 @@ export const useFirebaseEvents = (filters?: {
     try {
       let q = query(
         collection(db, 'events'),
-        where('isPublic', '==', true),
         orderBy('createdAt', 'desc'),
         startAfter(lastDoc),
         limit(filters?.limit || 20)
@@ -565,6 +567,12 @@ export const useFirebaseEvents = (filters?: {
       const newEvents: FirebaseEvent[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
+        
+        // Filter out non-public events on the client side
+        if (!data.isPublic) {
+          return;
+        }
+        
         const event = {
           id: doc.id,
           ...data,
